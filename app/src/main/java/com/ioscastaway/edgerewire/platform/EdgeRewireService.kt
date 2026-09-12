@@ -1,6 +1,8 @@
 package com.ioscastaway.edgerewire.platform
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
+import android.graphics.Path
 import android.hardware.display.DisplayManager
 import android.os.Handler
 import android.os.Looper
@@ -45,6 +47,8 @@ class EdgeRewireService : AccessibilityService() {
     companion object {
         private const val TAG = "EdgeRewire"
         private const val LOG_LINES = 80
+        private const val REVEAL_RETRIES = 10
+        private const val REVEAL_RETRY_MS = 100L
 
         private val _instance = MutableStateFlow<EdgeRewireService?>(null)
         /** Non-null while the service is bound. */
@@ -185,32 +189,94 @@ class EdgeRewireService : AccessibilityService() {
 
     // ------------------------------------------------------------ navigation
 
+    /**
+     * The browser's root node, looked up through the windows list rather than [rootInActiveWindow].
+     *
+     * While a finger is down on one of our strips, the framework's "active window" is the strip
+     * itself (the window being touched), so at ACTION_UP `rootInActiveWindow` would hand back our
+     * own empty overlay. The focused application window is the browser regardless of the touch.
+     */
+    private fun targetRoot(): android.view.accessibility.AccessibilityNodeInfo? {
+        val apps = try {
+            windows.filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
+        } catch (t: Throwable) {
+            emptyList()
+        }
+        val ordered = apps.sortedByDescending { it.isFocused }
+        for (w in ordered) {
+            val root = w.root ?: continue
+            if (root.packageName?.toString() in settings.targets) return root
+        }
+        return rootInActiveWindow?.takeIf { it.packageName?.toString() in settings.targets }
+    }
+
     private fun onSwipe(edge: Edge) {
         val direction = when (edge) {
             Edge.LEFT -> BrowserNavigator.Direction.BACK
             Edge.RIGHT -> BrowserNavigator.Direction.FORWARD
         }
-        val root = rootInActiveWindow
-        val result = navigator.navigate(root, direction)
-        val msg = when (result) {
-            BrowserNavigator.Result.Clicked -> "$direction: clicked toolbar button"
-            BrowserNavigator.Result.Disabled -> "$direction: button disabled, doing nothing (root of tab)"
-            BrowserNavigator.Result.ClickFailed -> "$direction: click rejected by the app"
+        val root = targetRoot()
+        if (root == null) {
+            report("$direction: no target window found")
+            return
+        }
+        when (navigator.navigate(root, direction)) {
+            BrowserNavigator.Result.Clicked -> report("$direction: clicked toolbar button")
+            BrowserNavigator.Result.Disabled -> report("$direction: button disabled, doing nothing (root of tab)")
+            BrowserNavigator.Result.ClickFailed -> report("$direction: click rejected by the app")
+            BrowserNavigator.Result.NotFound -> hiddenToolbar(direction)
+        }
+    }
+
+    /**
+     * The toolbar is not in the tree: Samsung Internet hides it, together with the address bar, on
+     * scroll, and the buttons leave the accessibility tree with it. There is no other public signal
+     * for "does this tab have history", and a cached answer goes stale as soon as the page
+     * navigates while scrolled (tried; it exited the browser at the root once). So: nudge the page
+     * a little (finger moving down = scroll up), which makes the toolbar reappear, read the real
+     * button state, then act on it.
+     */
+    private fun hiddenToolbar(direction: BrowserNavigator.Direction) {
+        val dm = resources.displayMetrics
+        val x = dm.widthPixels / 2f
+        val y0 = dm.heightPixels * 0.55f
+        val path = Path().apply { moveTo(x, y0); lineTo(x, y0 + dm.density * 48) }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 120))
+            .build()
+        val sent = dispatchGesture(gesture, object : GestureResultCallback() {
+            override fun onCompleted(g: GestureDescription?) = retryAfterReveal(direction, REVEAL_RETRIES)
+            override fun onCancelled(g: GestureDescription?) = report("$direction: reveal gesture cancelled")
+        }, null)
+        if (!sent) report("$direction: toolbar hidden and reveal gesture not dispatched")
+    }
+
+    private fun retryAfterReveal(direction: BrowserNavigator.Direction, left: Int) {
+        val root = targetRoot()
+        when (navigator.navigate(root, direction)) {
+            BrowserNavigator.Result.Clicked -> report("$direction: toolbar revealed, clicked button")
+            BrowserNavigator.Result.Disabled -> report("$direction: toolbar revealed, button disabled, doing nothing")
+            BrowserNavigator.Result.ClickFailed -> report("$direction: toolbar revealed, click rejected")
             BrowserNavigator.Result.NotFound ->
-                if (direction == BrowserNavigator.Direction.BACK && settings.fallbackToSystemBack) {
+                if (left > 0) {
+                    main.postDelayed({ retryAfterReveal(direction, left - 1) }, REVEAL_RETRY_MS)
+                } else if (direction == BrowserNavigator.Direction.BACK && settings.fallbackToSystemBack) {
                     performGlobalAction(GLOBAL_ACTION_BACK)
-                    "$direction: button not found, fell back to system back"
+                    report("$direction: toolbar did not reappear, fallback to system back")
                 } else {
-                    "$direction: button not found, doing nothing"
+                    report("$direction: toolbar did not reappear, doing nothing")
                 }
         }
+    }
+
+    private fun report(msg: String) {
         _state.update { it.copy(lastAction = msg) }
         log(msg)
     }
 
     /** Dump what the navigator sees, so the ids can be checked before anything is hardcoded. */
     fun logCandidates() {
-        val root = rootInActiveWindow ?: run { log("no active root"); return }
+        val root = targetRoot() ?: run { log("no target root"); return }
         val list = navigator.candidates(root)
         if (list.isEmpty()) log("no back/forward candidates in ${root.packageName}")
         list.forEach { (dir, c) -> log("candidate $dir: $c") }
