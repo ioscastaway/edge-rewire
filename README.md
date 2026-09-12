@@ -204,7 +204,5 @@ in every other app.
 
 ---
 
-**Reason #NN I don't regret switching to Android:**
+**Reason #07 I don't regret switching to Android:**
 The system's own gestures are negotiable, one app at a time.
-
-*(Number to be assigned in the profile README index.)*
