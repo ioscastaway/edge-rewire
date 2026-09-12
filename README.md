@@ -51,8 +51,9 @@ Everything here is a public API. The interesting part is how they compose.
 
 ## Experiment
 
-While Samsung Internet is the focused application window, two full-height strips 20dp wide sit on
-the left and right screen edges. Everything else on the phone keeps the stock gestures, because
+While Samsung Internet is the focused application window, two full-height strips sit on the left
+and right screen edges, each as wide as the system's own back-gesture zone plus 2dp (78px + 5px on
+the Fold 8 at default sensitivity; read from the window's system-gesture insets, not guessed). Everything else on the phone keeps the stock gestures, because
 the strips are removed the moment another app comes to the front.
 
 | Swipe | Toolbar in the accessibility tree | Toolbar not in the tree (page has been scrolled) |
@@ -113,9 +114,15 @@ Settings > Accessibility ──binds──▶ EdgeRewireService
    different layer.
 6. **The toolbar ids are `action_backward` and `action_forward`** with Korean descriptions on this
    device. Discovered from the service log, then hardcoded with a description-based fallback.
-7. **Injected swipes and real fingers are not the same test.** `adb shell input swipe` from x=5
-   reaches the strip; the system's edge detector saw the same events and stayed out. A pointer
-   stolen by the system would arrive as `ACTION_CANCEL`, which the strip logs; none were seen.
+7. **Injected swipes and real fingers are not the same test.** Every `adb shell input swipe`
+   started at x=5 and reached a 20dp strip. The first real thumb landed about 25dp from the edge:
+   outside the strip, inside the system's 30dp back-gesture zone, and the browser exited at the
+   root. The strip now sizes itself from the system-gesture insets it receives, which on this
+   device converge to the real zone width in a few relayouts. Swipes injected at 65px from the
+   edge are now caught.
+8. **Enable the service while the browser is already open and nothing happens** until the next
+   window event, because a fresh service has no idea what is in front. The service now evaluates
+   the foreground once, right after it connects.
 
 ## iOS comparison
 
@@ -134,8 +141,9 @@ Settings > Accessibility ──binds──▶ EdgeRewireService
 - **Samsung Internet only**, by design; the target list is editable in the debug screen and the
   same build was run against Chrome on the emulator, where no toolbar buttons exist and the
   strips correctly do nothing.
-- **Taps on the outer 20dp of the screen do not reach the browser** while the strips are up.
-  Nothing in Samsung Internet lives there, but a page's edge-hugging controls do.
+- **Taps on the outer ~32dp of the screen do not reach the browser** while the strips are up.
+  That is the same area the system already reserves for its back gesture, so nothing new is lost,
+  but a page's edge-hugging controls were never reachable by tap in gesture navigation anyway.
 - **One UI's Edge panel handle** shares the right edge. Inside the browser our strip is on top.
 - **The scrolled-page path nudges the page by 64dp** before tapping. It is visible, and if the
   toolbar somehow does not come back the tap lands on page content near the bottom edge.

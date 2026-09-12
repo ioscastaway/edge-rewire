@@ -41,6 +41,9 @@ class EdgeOverlay(
 ) {
     private val detector = SwipeDetector(edge, commitDistancePx)
     private var view: StripView? = null
+    private var params: WindowManager.LayoutParams? = null
+    /** Extra width beyond the system's own gesture zone, so a finger landing on its boundary is ours. */
+    private val marginPx = (2 * context.resources.displayMetrics.density).toInt()
 
     val isAttached: Boolean get() = view != null
 
@@ -66,6 +69,7 @@ class EdgeOverlay(
         try {
             windowManager.addView(v, lp)
             view = v
+            params = lp
         } catch (t: Throwable) {
             log("attach ${edge.name} failed: $t")
             Log.w(TAG, "addView failed", t)
@@ -75,6 +79,7 @@ class EdgeOverlay(
     fun detach() {
         val v = view ?: return
         view = null
+        params = null
         try {
             windowManager.removeViewImmediate(v)
         } catch (t: Throwable) {
@@ -98,6 +103,29 @@ class EdgeOverlay(
                 c.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                 c.hide(WindowInsets.Type.navigationBars())
             }
+        }
+
+        /**
+         * The strip must be at least as wide as the system's own back-gesture zone, or a finger
+         * that lands between the two widths is a system back gesture (and, at the root of a tab,
+         * an app exit). The zone is device- and sensitivity-dependent, so read it from the
+         * insets rather than guessing: 78px on the Fold 8 at default sensitivity vs our 52px.
+         */
+        override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
+            val g = insets.getInsets(WindowInsets.Type.systemGestures())
+            val zone = if (edge == Edge.LEFT) g.left else g.right
+            val wanted = maxOf(widthPx, zone + marginPx)
+            val lp = params
+            if (lp != null && lp.width != wanted) {
+                lp.width = wanted
+                try {
+                    windowManager.updateViewLayout(this, lp)
+                    log("${edge.name} strip width ${wanted}px (system gesture zone ${zone}px)")
+                } catch (t: Throwable) {
+                    Log.w(TAG, "updateViewLayout failed", t)
+                }
+            }
+            return super.onApplyWindowInsets(insets)
         }
 
         override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {

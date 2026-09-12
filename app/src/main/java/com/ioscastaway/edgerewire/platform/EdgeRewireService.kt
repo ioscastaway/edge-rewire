@@ -146,6 +146,9 @@ class EdgeRewireService : AccessibilityService() {
         _instance.value = this
         registerReceiver(dumpReceiver, IntentFilter(ACTION_DUMP), RECEIVER_EXPORTED)
         log("service connected (targets=${settings.targets.joinToString()})")
+        // The target may already be in front (service enabled while browsing); do not wait for
+        // the next window event to find out.
+        main.postDelayed({ evaluate(force = true) }, 300)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
