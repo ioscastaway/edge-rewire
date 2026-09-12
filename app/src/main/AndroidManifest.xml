@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+        No runtime permissions and no SYSTEM_ALERT_WINDOW. The edge strips are
+        TYPE_ACCESSIBILITY_OVERLAY windows, which an enabled accessibility service may add on its own.
+    -->
+
+    <!-- Package visibility (API 30+): only so the debug screen can launch the target browser. -->
+    <queries>
+        <package android:name="com.sec.android.app.sbrowser" />
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.EdgeRewire">
+
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+            The whole experiment. Bound by system_server once the user enables it under
+            Settings > Accessibility. Cannot be started from code.
+        -->
+        <service
+            android:name=".platform.EdgeRewireService"
+            android:exported="true"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+    </application>
+</manifest>

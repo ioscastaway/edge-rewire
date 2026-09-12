@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Edge Rewire</string>
+
+    <string name="accessibility_service_label">Edge Rewire (browser edge gestures)</string>
+    <string name="accessibility_service_description">
+        While Samsung Internet is on screen, Edge Rewire covers the left and right screen edges with
+        thin invisible strips. Swiping in from the left goes back one page and does nothing at the
+        first page instead of closing the browser; swiping in from the right goes forward. To decide,
+        it reads the state of the browser\'s own Back and Forward toolbar buttons. It reads nothing
+        else, stores nothing, and sends nothing off the device. Outside the browser the strips are
+        removed and system navigation is untouched. This is an engineering experiment, not an
+        assistive technology.
+    </string>
+</resources>
