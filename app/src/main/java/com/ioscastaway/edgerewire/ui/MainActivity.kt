@@ -21,6 +21,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -29,7 +30,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -98,6 +101,18 @@ private fun Screen(prefs: Prefs, openA11ySettings: () -> Unit, openBrowser: () -
                     Toggle("Fall back to system Back when no button found", settings.fallbackToSystemBack) { v ->
                         prefs.update { it.copy(fallbackToSystemBack = v) }
                     }
+                    var targetsText by remember(settings.targets) { mutableStateOf(settings.targets.joinToString(", ")) }
+                    OutlinedTextField(
+                        value = targetsText,
+                        onValueChange = { targetsText = it },
+                        label = { Text("Target packages (comma-separated)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedButton(onClick = {
+                        val set = targetsText.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+                        if (set.isNotEmpty()) prefs.update { it.copy(targets = set) }
+                    }) { Text("Apply targets") }
                     Text("Edge width: ${settings.edgeWidthDp}dp")
                     Slider(
                         value = settings.edgeWidthDp.toFloat(),

@@ -10,12 +10,21 @@ import android.view.accessibility.AccessibilityNodeInfo
  * disabled Back button means "this is the root of the tab", which is exactly when iOS does nothing
  * and Android would leave the app.
  *
- * Matching is by resource id first (stable across locales), then by content description
- * (English and Korean), because the ids are discovered at runtime and logged rather than assumed.
+ * Lookup order: a known resource id for the package (one cheap IPC into the browser process),
+ * then a tree walk matching ids and content descriptions (English and Korean). The known ids were
+ * read off the device log, not guessed; see the README.
  */
 class BrowserNavigator(private val log: (String) -> Unit) {
 
     enum class Direction { BACK, FORWARD }
+
+    enum class ButtonState { ENABLED, DISABLED, ABSENT }
+
+    /** Snapshot of the toolbar. ABSENT for both means the toolbar is hidden (auto-hide on scroll). */
+    data class ToolbarState(val back: ButtonState, val forward: ButtonState) {
+        fun of(direction: Direction) = if (direction == Direction.BACK) back else forward
+        val visible: Boolean get() = back != ButtonState.ABSENT || forward != ButtonState.ABSENT
+    }
 
     sealed interface Result {
         data object Clicked : Result
@@ -28,14 +37,23 @@ class BrowserNavigator(private val log: (String) -> Unit) {
         override fun toString() = "id=${id?.substringAfter('/')} desc=$desc enabled=$enabled visible=$visible clickable=$clickable"
     }
 
-    /** Best matching node for [direction], or null. Caller owns the returned node. */
+    /** Best matching node for [direction], or null. */
     fun find(root: AccessibilityNodeInfo?, direction: Direction): AccessibilityNodeInfo? {
         root ?: return null
+        KNOWN_IDS[root.packageName?.toString()]?.get(direction)?.let { id ->
+            root.findAccessibilityNodeInfosByViewId(id).firstOrNull()?.let { return it }
+        }
         val matches = ArrayList<AccessibilityNodeInfo>()
         walk(root, 0) { n -> if (matches(n, direction)) matches += n }
         if (matches.isEmpty()) return null
         // Prefer clickable, then visible; the toolbar button itself over a wrapper.
         return matches.maxByOrNull { (if (it.isClickable) 2 else 0) + (if (it.isVisibleToUser) 1 else 0) }
+    }
+
+    fun state(root: AccessibilityNodeInfo?): ToolbarState {
+        fun s(d: Direction) = find(root, d)?.let { if (it.isEnabled) ButtonState.ENABLED else ButtonState.DISABLED }
+            ?: ButtonState.ABSENT
+        return ToolbarState(s(Direction.BACK), s(Direction.FORWARD))
     }
 
     fun navigate(root: AccessibilityNodeInfo?, direction: Direction): Result {
@@ -97,5 +115,13 @@ class BrowserNavigator(private val log: (String) -> Unit) {
 
     private companion object {
         const val MAX_DEPTH = 40
+
+        /** Toolbar button ids observed on device. Samsung Internet 30.0.2.61, One UI 9.0. */
+        val KNOWN_IDS: Map<String, Map<Direction, String>> = mapOf(
+            Settings.SAMSUNG_INTERNET to mapOf(
+                Direction.BACK to "${Settings.SAMSUNG_INTERNET}:id/action_backward",
+                Direction.FORWARD to "${Settings.SAMSUNG_INTERNET}:id/action_forward",
+            ),
+        )
     }
 }
